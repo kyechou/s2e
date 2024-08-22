@@ -173,15 +173,15 @@ private:
      */
     uint64_t get_pc(S2EExecutionState *state) const;
 
-    // /**
-    //  * Start sending packets to the interface with the given `if_name`.
-    //  */
-    // void send_packets_to(S2EExecutionState *state, const std::string &if_name) const;
-    //
-    // /**
-    //  * Stop sending packets.
-    //  */
-    // void stop_sending_packets(S2EExecutionState *state) const;
+    /**
+     * Start sending packets to the interface with the given `if_name`.
+     */
+    void send_packets_to(S2EExecutionState *state, const std::string &if_name) const;
+
+    /**
+     * Stop sending packets.
+     */
+    void stop_sending_packets(S2EExecutionState *state) const;
 
     void create_sym_var(S2EExecutionState *state, uintptr_t address, unsigned int size,
                         const std::string &var_name) const;
@@ -193,6 +193,14 @@ private:
      * Mimesis custom instruction: user_send, invoked when the userspace application sends outgoing packets.
      */
     void user_send(S2EExecutionState *state);
+    /**
+     * Mimesis custom instruction: kernel_recv, invoked when the kernel stack receives incoming packets.
+     */
+    void kernel_recv(S2EExecutionState *state);
+    /**
+     * Mimesis custom instruction: kernel_send, invoked when the kernel stack sends outgoing packets.
+     */
+    void kernel_send(S2EExecutionState *state);
     /**
      * Record the trace of the current execution path, update the model, and
      * clear the plugin state for the current execution path.
