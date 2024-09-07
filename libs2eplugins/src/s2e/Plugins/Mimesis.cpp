@@ -247,6 +247,7 @@ void Mimesis::onEngineShutdown() {
     llvm::raw_ostream *os = &g_s2e->getInfoStream();
     *os << "Timestamp: (onEngineShutdown) " + timestamp() + "\n";
     ps::Manager::get().report_stats(stdout);
+    ps::Manager::get().reset();
     *os << "=======================================================\n"
         << "          Start serializing the model\n"
         << "=======================================================\n\n";
