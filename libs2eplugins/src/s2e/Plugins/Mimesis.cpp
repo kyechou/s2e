@@ -246,12 +246,12 @@ void Mimesis::onProcessUnload(S2EExecutionState *state, uint64_t page_dir, uint6
 void Mimesis::onEngineShutdown() {
     llvm::raw_ostream *os = &g_s2e->getInfoStream();
     *os << "Timestamp: (onEngineShutdown) " + timestamp() + "\n";
-    ps::Manager::get().report_stats(stdout);
-    ps::Manager::get().reset();
+    *os << ps::Manager::get().report_stats() << "\n";
     *os << "=======================================================\n"
         << "          Start serializing the model\n"
         << "=======================================================\n\n";
     // TODO
+    ps::Manager::get().reset();
 }
 
 std::string Mimesis::timestamp() const {
