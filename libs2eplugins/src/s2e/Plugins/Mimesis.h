@@ -56,6 +56,7 @@ private:
     LinuxMonitor *_monitor = nullptr;
     BaseInstructions *_base_inst = nullptr;
     ProcessExecutionDetector *_proc_detector = nullptr;
+    int _max_depth = 1;
     std::vector<std::string> _interfaces;
     ps::Model _model;
 

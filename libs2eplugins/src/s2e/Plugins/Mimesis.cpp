@@ -44,6 +44,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include "s2e/ConfigFile.h"
 #include "s2e/S2E.h"
 #include "s2e/S2EDeviceState.h"
 #include "s2e/S2EExecutionStateMemory.h"
@@ -80,6 +81,11 @@ void Mimesis::initialize() {
     s2e_assert(nullptr, _monitor, "Plugin LinuxMonitor is missing");
     s2e_assert(nullptr, _base_inst, "Plugin BaseInstructions is missing");
     s2e_assert(nullptr, _proc_detector, "Plugin ProcessExecutionDetector is missing");
+
+    // Get the config parameters from `s2e-config.lua`
+    bool ok = true;
+    _max_depth = s2e()->getConfig()->getInt(getConfigKey() + ".maxdepth", 1, &ok);
+    s2e_assert(nullptr, ok, "Failed to load config parameters");
 
     // Collect all interfaces. Here we see the QEMU host interfaces.
     struct if_nameindex *intfs = if_nameindex();
@@ -293,9 +299,6 @@ void Mimesis::create_sym_var(S2EExecutionState *state, uintptr_t address, unsign
     stop_sending_packets(state);
 }
 
-// TODO: Make this configurable in `s2e-config.lua`.
-constexpr int max_depth = 2;
-
 void Mimesis::user_recv(S2EExecutionState *state) {
     DECLARE_PLUGINSTATE(MimesisState, state);
 
@@ -309,7 +312,7 @@ void Mimesis::user_recv(S2EExecutionState *state) {
 
     // Next depth (next packet in the input sequence)
     plgState->depth++;
-    if (plgState->depth > max_depth) {
+    if (plgState->depth > _max_depth) {
         s2e()->getExecutor()->terminateState(*state, "Kill state at depth " + std::to_string(plgState->depth));
         return;
     }
@@ -364,7 +367,7 @@ void Mimesis::kernel_recv(S2EExecutionState *state) {
 
     // Next depth (next packet in the input sequence)
     plgState->depth++;
-    if (plgState->depth > max_depth) {
+    if (plgState->depth > _max_depth) {
         s2e()->getExecutor()->terminateState(*state, "Kill state at depth " + std::to_string(plgState->depth));
         return;
     }
