@@ -151,6 +151,18 @@ void Mimesis::onInitializationComplete(S2EExecutionState *state) {
 
 void Mimesis::onStateForkDecide(S2EExecutionState *state, const klee::ref<klee::Expr> &condition, bool &allow_forking) {
     auto pc = get_pc(state);
+
+    // Disable forking at kernel code.
+    // This helps reducing the state explosion problem where a lot of packet
+    // drop traces are generated triggering some disk driver issue. We can
+    // safely do so for pcap-based NFs because most/all relevant forking
+    // conditions happen in userspace.
+    // NOTE: We may want to revisit this method for eBPF-based programs.
+    if (_monitor->isKernelAddress(pc)) {
+        allow_forking = false;
+        return;
+    }
+
     if (!_proc_detector->isTrackedPc(state, pc)) {
         getWarningsStream(state) << "State forking in untracked region.\n";
         DECLARE_PLUGINSTATE(MimesisState, state);
