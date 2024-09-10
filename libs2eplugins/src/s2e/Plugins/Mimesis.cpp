@@ -296,11 +296,11 @@ void Mimesis::create_sym_var(S2EExecutionState *state, uintptr_t address, unsign
     _base_inst->makeSymbolic(state, address, size, var_name, nullptr, &klee_var_name);
     ps::Manager::get().register_symbolic_variable(var_name, /*nbits=*/size * 8, klee_var_name);
     getInfoStream(state) << "Symbolic variable created: " << klee_var_name << "\n";
-    stop_sending_packets(state);
 }
 
 void Mimesis::user_recv(S2EExecutionState *state) {
     DECLARE_PLUGINSTATE(MimesisState, state);
+    stop_sending_packets(state);
 
     // Consecutive reception, mark the previous ingress packet as "dropped" (i.e., empty output packet set).
     if (plgState->ingress_intf && plgState->ingress_pkt) {
@@ -356,6 +356,7 @@ void Mimesis::kernel_recv(S2EExecutionState *state) {
     }
 
     DECLARE_PLUGINSTATE(MimesisState, state);
+    stop_sending_packets(state);
 
     // Consecutive reception, mark the previous ingress packet as "dropped" (i.e., empty output packet set).
     if (plgState->ingress_intf && plgState->ingress_pkt) {
@@ -373,88 +374,50 @@ void Mimesis::kernel_recv(S2EExecutionState *state) {
     }
 
     // Create symbolic arrays for the ingress interface and packet.
-    target_ulong skb_ptr; // intf_ptr, buffer, len;
+    target_ulong buffer, len;
     bool ok = true;
-    ok &= state->regs()->read(CPU_OFFSET(regs[R_EAX]), &skb_ptr, sizeof(skb_ptr), false);
+    ok &= state->regs()->read(CPU_OFFSET(regs[R_EAX]), &buffer, sizeof(buffer), false);
+    ok &= state->regs()->read(CPU_OFFSET(regs[R_ECX]), &len, sizeof(len), false);
     s2e_assert(state, ok, "Symbolic argument was passed to kernel_recv");
-
-    llvm::raw_ostream *os = &getInfoStream(state);
-    *os << "(struct sk_buff *) skb_ptr: " << hexval(skb_ptr) << "\n";
-
-    // TODO: Read the corresponding ifindex and data from the sk_buff using
-    // S2E/LLVM functions, and eventually create symbolic variables.
-
-    // state->mem()->read();
-
-    // ========== From kernel_probes.stp ==========
-    // TODO: Turn these into C++ code and create symbolic variables for the
-    // ingress packet frame. (consider making the intf constant for now?)
-    //
-    // // Skip invalid frames
-    // if (!skb_mac_header_was_set($pskb)) {
-    //     info("mac_header is not set. skipping the sk_buff...");
-    //     next; // returns immediately from the enclosing probe handler.
-    // }
-
-    // // L2
-    // eth_hdr = skb_mac_header($skb);
-    // eth_dst_addr = @cast(eth_hdr, "ethhdr")->h_dest;
-    // ethertype = ntohs(@cast(eth_hdr, "ethhdr")->h_proto);
-    // if (!check_eth_addr(eth_dst_addr)) {
-    //     info("dst_mac_address is not magical. skipping the sk_buff...");
-    //     next;
-    // }
-
-    // msg = sprintf("%s: len=%d datalen=%d\n", probefunc(), $skb->len, $skb->data_len)
-    // msg = sprintf("len=%d data_len=%d dev_if=%d head=%x eth_dst_addr=%x ethertype=%x data=%x",
-    //     $skb->len, $skb->data_len, $skb->dev->ifindex, $skb->head, eth_dst_addr, ethertype, $skb->data);
-    // info(msg);
-
-    // // L3
-    // if (ethertype == 0xdead) {
-    //     // Demo
-    //     # eth_len = $skb->data - eth_hdr;
-    //     # demo_len = %{ sizeof(struct DemoHeader) %};
-    //     info("Received a demo packet. Creating the symbolic input...");
-    //     # s2e_make_symbolic(eth_hdr, eth_len + demo_len, "ingress_packet");
-    // } else if (ethertype == 0x0800) {
-    //     // IPv4
-    //     info("IPv4 protocol");
-    // } else {
-    //     // Unsupported
-    //     info("Unsupported ethertype");
-    //     next;
-    // }
-
-    // skb_ptr=$skb;
-    // ifindex_ptr = &@cast(skb_ptr, "sk_buff")->dev->ifindex;
-    // s2e_mimesis_kernel_recv(
-    //         ifindex_ptr,
-    //         @cast(skb_ptr, "sk_buff")->data,
-    //         @cast(skb_ptr, "sk_buff")->len);
-    // ==============================================================
-
-    // create_sym_var(state, /*address=*/intf_ptr, /*size=*/1, "in_intf_d" + std::to_string(plgState->depth));
-    // create_sym_var(state, /*address=*/buffer, /*size=*/len, "in_pkt_d" + std::to_string(plgState->depth));
+    create_sym_var(state, /*address=*/buffer, /*size=*/len, "in_pkt_d" + std::to_string(plgState->depth));
 
     // Update the plugin state with the ingress interface and packet.
-    // plgState->ingress_intf = state->mem()->read(intf_ptr, /*width=(bits)*/ 8, VirtualAddress);
-    // plgState->ingress_pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
+    // NOTE: Set the ingress intf concretely to 0 for now.
+    // FUTURE (option 1): Make the concrete ingress interface configurable and
+    // use `send_packets_to` accordingly.
+    // FUTURE (option 2): Collect all `struct net_device *` devices from the
+    // kernel and make `skb->dev` point to the disjuncted symbolic value.
+    plgState->ingress_intf = klee::ConstantExpr::create(0x0, klee::Expr::Int8);
+    plgState->ingress_pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
 }
 
 void Mimesis::kernel_send(S2EExecutionState *state) {
-    // Get the egress interface and packet as symbolic expressions.
-    klee::ref<klee::Expr> intf, pkt;
-    target_ulong buffer, len;
-    bool ok = true;
-    intf = state->regs()->read(CPU_OFFSET(regs[R_EAX]), klee::Expr::Int8);
-    ok &= state->regs()->read(CPU_OFFSET(regs[R_ECX]), &buffer, sizeof(buffer), false);
-    ok &= state->regs()->read(CPU_OFFSET(regs[R_EDX]), &len, sizeof(len), false);
-    s2e_assert(state, intf, "Incorrect offset/width for kernel_send intf");
-    s2e_assert(state, ok, "Symbolic egress buffer address or length in kernel_send");
-    pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
+    // Ignore untracked processes.
+    auto pid = _monitor->getPid(state);
+    if (_proc_detector->getTrackedPids(state).count(pid) == 0) {
+        getInfoStream(state) << "Ignore untracked process " << hexval(pid) << "\n";
+        return;
+    }
 
-    record_trace(state, intf, pkt);
+    // Get the egress ifindex and packet as symbolic expressions.
+    klee::ref<klee::Expr> ifindex, pkt;
+    target_ulong buffer, len, cb;
+    bool ok = true;
+    ifindex = state->regs()->read(CPU_OFFSET(regs[R_EAX]), klee::Expr::Int32);
+    ok &= state->regs()->read(CPU_OFFSET(regs[R_EBX]), &buffer, sizeof(buffer), false);
+    ok &= state->regs()->read(CPU_OFFSET(regs[R_ECX]), &len, sizeof(len), false);
+    ok &= state->regs()->read(CPU_OFFSET(regs[R_EDX]), &cb, sizeof(cb), false);
+    s2e_assert(state, ifindex, "Incorrect offset/width for kernel_send ifindex");
+    s2e_assert(state, ok, "Symbolic arguments in kernel_send");
+
+    // Set the control buffer to the special value to avoid sending out symbolic
+    // frame to the driver code. See
+    // <mimesis>/depends/patches/07-s2e-linux-kernel-netdev_start_xmit.patch.
+    state->mem()->write(cb, (uint32_t) 0xdeadbeef);
+
+    pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
+    record_trace(state, ifindex, pkt);
+    send_packets_to(state, _interfaces.at(0));
 }
 
 void Mimesis::record_trace(S2EExecutionState *state, const klee::ref<klee::Expr> egress_intf,
