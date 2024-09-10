@@ -333,6 +333,12 @@ public:
         onStateSwitch;
 
     ///
+    /// Signal that is emitted after switching to a new state.
+    ///
+    sigc::signal<void, S2EExecutionState* /* next state */>
+        afterStateSwitch;
+
+    ///
     /// Triggered whenever a state is killed.
     ///
     sigc::signal<void, S2EExecutionState*> onStateKill;

@@ -45,6 +45,7 @@
 #include "OSMonitors/Linux/LinuxMonitor.h"
 #include "OSMonitors/Support/ProcessExecutionDetector.h"
 #include "libps/model.hpp"
+#include "timer.h"
 
 namespace s2e {
 namespace plugins {
@@ -56,9 +57,12 @@ private:
     LinuxMonitor *_monitor = nullptr;
     BaseInstructions *_base_inst = nullptr;
     ProcessExecutionDetector *_proc_detector = nullptr;
-    int _max_depth = 1;
+    int _max_depth = 0;
     std::vector<std::string> _interfaces;
     ps::Model _model;
+    size_t _consecutive_concretes = 0;
+    constexpr static int64_t _timer_period = 100; // ms
+    struct CPUTimer *_sender_timer = nullptr;
 
 private:
     /**
@@ -111,6 +115,11 @@ private:
      * Signal that is emitted when we change states.
      */
     void onStateSwitch(S2EExecutionState *current_state, S2EExecutionState *next_state);
+
+    /**
+     * Signal that is emitted after switching to a new state.
+     */
+    void afterStateSwitch(S2EExecutionState *new_state);
 
     /**
      * Triggered whenever a state is killed.
@@ -167,6 +176,9 @@ private:
      */
     void onEngineShutdown();
 
+    static void timer_cb(void *opaque);
+    void stop_sender_timer();
+
     std::string timestamp() const;
 
     /**
@@ -178,11 +190,13 @@ private:
      * Start sending packets to the interface with the given `if_name`.
      */
     void send_packets_to(S2EExecutionState *state, const std::string &if_name) const;
+    void start_sending_packets(S2EExecutionState *state) const;
+    void stop_sending_packets(S2EExecutionState *state) const;
 
     /**
-     * Stop sending packets.
+     * Returns true if the sender is sending packets to any interface.
      */
-    void stop_sending_packets(S2EExecutionState *state) const;
+    bool is_sending_packets(S2EExecutionState *state) const;
 
     void create_sym_var(S2EExecutionState *state, uintptr_t address, unsigned int size,
                         const std::string &var_name) const;

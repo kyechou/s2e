@@ -47,6 +47,7 @@
 #include "s2e/ConfigFile.h"
 #include "s2e/S2E.h"
 #include "s2e/S2EDeviceState.h"
+#include "s2e/S2EExecutionState.h"
 #include "s2e/S2EExecutionStateMemory.h"
 #include "s2e/S2EExecutionStateRegisters.h"
 #include "s2e/Utils.h"
@@ -61,6 +62,7 @@
 #include "fsigc++/fsigc++.h"
 #include "libps/manager.hpp"
 #include "libps/packetset.hpp"
+#include "timer.h"
 
 namespace s2e {
 namespace plugins {
@@ -82,7 +84,7 @@ void Mimesis::initialize() {
     s2e_assert(nullptr, _base_inst, "Plugin BaseInstructions is missing");
     s2e_assert(nullptr, _proc_detector, "Plugin ProcessExecutionDetector is missing");
 
-    // Get the config parameters from `s2e-config.lua`
+    // Get the config parameters from `s2e-config.lua`.
     bool ok = true;
     _max_depth = s2e()->getConfig()->getInt(getConfigKey() + ".maxdepth", 1, &ok);
     s2e_assert(nullptr, ok, "Failed to load config parameters");
@@ -108,6 +110,7 @@ void Mimesis::initialize() {
     s2e()->getCorePlugin()->onCustomInstruction.connect(sigc::mem_fun(*this, &Mimesis::onCustomInstruction));
     s2e()->getCorePlugin()->onStateMerge.connect(sigc::mem_fun(*this, &Mimesis::onStateMerge));
     s2e()->getCorePlugin()->onStateSwitch.connect(sigc::mem_fun(*this, &Mimesis::onStateSwitch));
+    s2e()->getCorePlugin()->afterStateSwitch.connect(sigc::mem_fun(*this, &Mimesis::afterStateSwitch));
     s2e()->getCorePlugin()->onStateKill.connect(sigc::mem_fun(*this, &Mimesis::onStateKill));
     s2e()->getCorePlugin()->onEngineShutdown.connect(sigc::mem_fun(*this, &Mimesis::onEngineShutdown));
 
@@ -135,17 +138,14 @@ Mimesis::~Mimesis() {
 }
 
 void Mimesis::onInitializationComplete(S2EExecutionState *state) {
-    // TODO: Experiment with this disabled.
-    _proc_detector->setTrackKernel(true); // Kernel tracking is always enabled.
+    // Kernel tracking is always enabled. TODO: Experiment with this disabled.
+    _proc_detector->setTrackKernel(true);
+    s2e_assert(state, !_proc_detector->isTrackedModulesEmpty(), "No target program is configured.");
 
-    if (_proc_detector->isTrackedModulesEmpty()) {
-        // If there is no tracked modules configured, it is most likely that the
-        // kernel is being analyzed, we can start sending the input packets
-        // immediately.
-        getInfoStream(state) << "No target programs configured.\n";
-        send_packets_to(state, _interfaces.at(0));
-    }
+    // Initialize the timer for sending subsequent packets.
+    _sender_timer = libcpu_new_timer_ms(host_clock, &timer_cb, this);
 
+    state->setStateSwitchForbidden(true); // disable state switching
     getInfoStream(state) << "Timestamp: (onInitializationComplete) " + timestamp() + "\n";
 }
 
@@ -163,6 +163,7 @@ void Mimesis::onStateForkDecide(S2EExecutionState *state, const klee::ref<klee::
 void Mimesis::onStateFork(S2EExecutionState *original_state, const std::vector<S2EExecutionState *> &new_states,
                           const std::vector<klee::ref<klee::Expr>> &conditions) {
     for (S2EExecutionState *state : new_states) {
+        state->setStateSwitchForbidden(true); // disable state switching
         auto constraints = state->constraints().getConstraintSet();
         ps::PacketSet ps(constraints);
         if (ps.empty()) {
@@ -205,6 +206,18 @@ void Mimesis::onStateSwitch(S2EExecutionState *current_state, S2EExecutionState 
     // getDebugStream(current_state) << "onStateSwitch" << '\n';
 }
 
+void Mimesis::afterStateSwitch(S2EExecutionState *new_state) {
+    if (new_state->getID() == 0) { // Switching to the initial state.
+        return;
+    }
+
+    // Use a timer to check if we need to start sending subsequent input
+    // packets. If there's a long period of concrete execution, it's possible
+    // that the program is waiting for the next input packet. This can happen if
+    // the program silently dropped the previous input packet.
+    libcpu_mod_timer(_sender_timer, libcpu_get_clock_ms(host_clock) + _timer_period);
+}
+
 void Mimesis::onStateKill(S2EExecutionState *state) {
     DECLARE_PLUGINSTATE(MimesisState, state);
     if (plgState->ingress_intf && plgState->ingress_pkt) {
@@ -240,7 +253,7 @@ void Mimesis::onConcreteDataMemoryAccess(S2EExecutionState *state, uint64_t virt
 void Mimesis::onProcessLoad(S2EExecutionState *state, uint64_t page_dir, uint64_t pid, const std::string &proc_name) {
     getInfoStream(state) << "Target program loaded: " << proc_name << ", pid: " << hexval(pid) << ".\n";
     getInfoStream(state) << "Timestamp: (onProcessLoad) " + timestamp() + "\n";
-    send_packets_to(state, _interfaces.at(0));
+    start_sending_packets(state);
 }
 
 void Mimesis::onProcessUnload(S2EExecutionState *state, uint64_t page_dir, uint64_t pid, uint64_t return_code) {
@@ -260,6 +273,33 @@ void Mimesis::onEngineShutdown() {
     ps::Manager::get().reset();
 }
 
+void Mimesis::timer_cb(void *opaque) {
+    if (!g_s2e_state) {
+        return;
+    }
+    Mimesis *mimesis = (Mimesis *) opaque;
+
+    if (!g_s2e_state->isRunningConcrete() || mimesis->is_sending_packets(g_s2e_state)) {
+        mimesis->_consecutive_concretes = 0;
+        return;
+    }
+
+    mimesis->_consecutive_concretes++;
+    // mimesis->getInfoStream(g_s2e_state) << "Timer: " << mimesis->_consecutive_concretes << "\n";
+
+    if (mimesis->_consecutive_concretes > 30 /* 3 sec */) {
+        mimesis->_consecutive_concretes = 0;
+        mimesis->start_sending_packets(g_s2e_state);
+    } else {
+        libcpu_mod_timer(mimesis->_sender_timer, libcpu_get_clock_ms(host_clock) + _timer_period);
+    }
+}
+
+void Mimesis::stop_sender_timer() {
+    _consecutive_concretes = 0;
+    libcpu_del_timer(_sender_timer);
+}
+
 std::string Mimesis::timestamp() const {
     auto tp = std::chrono::high_resolution_clock::now();
     auto nano = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
@@ -271,6 +311,10 @@ uint64_t Mimesis::get_pc(S2EExecutionState *state) const {
     static_assert(std::is_fundamental<target_ulong>::value, "Read from register can only use primitive types");
     target_ulong ret;
     memset(&ret, 0, sizeof(ret));
+    if (!state) {
+        state = g_s2e_state;
+    }
+    s2e_assert(state, state, "Null state to read PC (eip)");
     if (!state->regs()->read(CPU_OFFSET(eip), &ret, sizeof(ret), /*concretize=*/false)) {
         getWarningsStream(state) << "Failed to read PC (eip), possibly due to a symbolic PC value.\n";
         return 0;
@@ -286,8 +330,22 @@ void Mimesis::send_packets_to(S2EExecutionState *state, const std::string &if_na
     send_packet.close();
 }
 
+void Mimesis::start_sending_packets(S2EExecutionState *state) const {
+    send_packets_to(state, _interfaces.at(0));
+}
+
 void Mimesis::stop_sending_packets(S2EExecutionState *state) const {
     send_packets_to(state, "");
+}
+
+bool Mimesis::is_sending_packets(S2EExecutionState *state) const {
+    constexpr char send_packet_fn[] = "/dev/shm/send_packet";
+    std::ifstream send_packet(send_packet_fn);
+    s2e_assert(state, send_packet, "Failed to open " + std::string(send_packet_fn));
+    std::string if_name;
+    send_packet >> if_name;
+    send_packet.close();
+    return !if_name.empty();
 }
 
 void Mimesis::create_sym_var(S2EExecutionState *state, uintptr_t address, unsigned int size,
@@ -349,14 +407,16 @@ void Mimesis::user_send(S2EExecutionState *state) {
 
 void Mimesis::kernel_recv(S2EExecutionState *state) {
     // Ignore untracked processes.
+    auto pc = get_pc(state);
     auto pid = _monitor->getPid(state);
-    if (_proc_detector->getTrackedPids(state).count(pid) == 0) {
-        getInfoStream(state) << "Ignore untracked process " << hexval(pid) << "\n";
+    if (!_monitor->isKernelAddress(pc) && !_proc_detector->isTrackedPc(state, pc)) {
+        getInfoStream(state) << "Ignore untracked process " << hexval(pid) << " at pc " << hexval(pc) << "\n";
         return;
     }
 
     DECLARE_PLUGINSTATE(MimesisState, state);
     stop_sending_packets(state);
+    stop_sender_timer();
 
     // Consecutive reception, mark the previous ingress packet as "dropped" (i.e., empty output packet set).
     if (plgState->ingress_intf && plgState->ingress_pkt) {
@@ -384,7 +444,7 @@ void Mimesis::kernel_recv(S2EExecutionState *state) {
     // Update the plugin state with the ingress interface and packet.
     // NOTE: Set the ingress intf concretely to 0 for now.
     // FUTURE (option 1): Make the concrete ingress interface configurable and
-    // use `send_packets_to` accordingly.
+    // iterate through each interface.
     // FUTURE (option 2): Collect all `struct net_device *` devices from the
     // kernel and make `skb->dev` point to the disjuncted symbolic value.
     plgState->ingress_intf = klee::ConstantExpr::create(0x0, klee::Expr::Int8);
@@ -393,9 +453,10 @@ void Mimesis::kernel_recv(S2EExecutionState *state) {
 
 void Mimesis::kernel_send(S2EExecutionState *state) {
     // Ignore untracked processes.
+    auto pc = get_pc(state);
     auto pid = _monitor->getPid(state);
-    if (_proc_detector->getTrackedPids(state).count(pid) == 0) {
-        getInfoStream(state) << "Ignore untracked process " << hexval(pid) << "\n";
+    if (!_proc_detector->isTrackedPc(state, pc)) {
+        getInfoStream(state) << "Ignore untracked process " << hexval(pid) << " at pc " << hexval(pc) << "\n";
         return;
     }
 
@@ -417,7 +478,8 @@ void Mimesis::kernel_send(S2EExecutionState *state) {
 
     pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
     record_trace(state, ifindex, pkt);
-    send_packets_to(state, _interfaces.at(0));
+    stop_sender_timer();
+    start_sending_packets(state);
 }
 
 void Mimesis::record_trace(S2EExecutionState *state, const klee::ref<klee::Expr> egress_intf,

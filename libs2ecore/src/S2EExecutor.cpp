@@ -761,6 +761,7 @@ void S2EExecutor::stateSwitchTimerCallback(void *opaque) {
         S2EExecutionState *nextState = c->selectNextState(g_s2e_state);
         if (nextState) {
             g_s2e_state = nextState;
+            g_s2e->getCorePlugin()->afterStateSwitch.emit(nextState);
         } else {
             // Do not reschedule the timer anymore
             return;
