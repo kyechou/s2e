@@ -139,7 +139,7 @@ Mimesis::~Mimesis() {
 }
 
 void Mimesis::onInitializationComplete(S2EExecutionState *state) {
-    // Kernel tracking is always enabled. TODO: Experiment with this disabled.
+    // Kernel tracking is always enabled.
     _proc_detector->setTrackKernel(true);
     s2e_assert(state, !_proc_detector->isTrackedModulesEmpty(), "No target program is configured.");
 
@@ -177,11 +177,11 @@ void Mimesis::onStateFork(S2EExecutionState *original_state, const std::vector<S
                           const std::vector<klee::ref<klee::Expr>> &conditions) {
     for (S2EExecutionState *state : new_states) {
         state->setStateSwitchForbidden(true); // disable state switching
-        auto constraints = state->constraints().getConstraintSet();
-        ps::PacketSet ps(constraints);
-        if (ps.empty()) {
-            s2e()->getExecutor()->terminateState(*state, "Kill unsat state");
-        }
+        // auto constraints = state->constraints().getConstraintSet();
+        // ps::PacketSet ps(constraints);
+        // if (ps.empty()) {
+        //     s2e()->getExecutor()->terminateState(*state, "Kill unsat state");
+        // }
     }
 }
 
