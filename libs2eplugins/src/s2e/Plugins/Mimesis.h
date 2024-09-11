@@ -58,6 +58,7 @@ private:
     BaseInstructions *_base_inst = nullptr;
     ProcessExecutionDetector *_proc_detector = nullptr;
     int _max_depth = 0;
+    bool _allow_kernel_forking = false;
     std::vector<std::string> _interfaces;
     ps::Model _model;
     size_t _consecutive_concretes = 0;

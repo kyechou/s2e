@@ -87,6 +87,7 @@ void Mimesis::initialize() {
     // Get the config parameters from `s2e-config.lua`.
     bool ok = true;
     _max_depth = s2e()->getConfig()->getInt(getConfigKey() + ".maxdepth", 1, &ok);
+    _allow_kernel_forking = s2e()->getConfig()->getBool(getConfigKey() + ".allowKernelForking", false, &ok);
     s2e_assert(nullptr, ok, "Failed to load config parameters");
 
     // Collect all interfaces. Here we see the QEMU host interfaces.
@@ -159,7 +160,7 @@ void Mimesis::onStateForkDecide(S2EExecutionState *state, const klee::ref<klee::
     // conditions happen in userspace.
     // NOTE: We may want to revisit this method for eBPF-based programs.
     if (_monitor->isKernelAddress(pc)) {
-        allow_forking = false;
+        allow_forking = _allow_kernel_forking;
         return;
     }
 
