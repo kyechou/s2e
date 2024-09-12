@@ -60,7 +60,9 @@ private:
     int _max_depth = 0;
     bool _allow_kernel_forking = false;
     std::vector<std::string> _interfaces;
+    std::string _program_name;
     ps::Model _model;
+
     size_t _consecutive_concretes = 0;
     constexpr static int64_t _timer_period = 100; // ms
     struct CPUTimer *_sender_timer = nullptr;

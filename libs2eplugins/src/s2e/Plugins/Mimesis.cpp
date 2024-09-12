@@ -61,7 +61,6 @@
 #include "cpu/types.h"
 #include "fsigc++/fsigc++.h"
 #include "libps/manager.hpp"
-#include "libps/packetset.hpp"
 #include "timer.h"
 
 namespace s2e {
@@ -261,6 +260,7 @@ void Mimesis::onConcreteDataMemoryAccess(S2EExecutionState *state, uint64_t virt
 }
 
 void Mimesis::onProcessLoad(S2EExecutionState *state, uint64_t page_dir, uint64_t pid, const std::string &proc_name) {
+    _program_name = proc_name;
     getInfoStream(state) << "Target program loaded: " << proc_name << ", pid: " << hexval(pid) << ".\n";
     getInfoStream(state) << "Timestamp: (onProcessLoad) " + timestamp() + "\n";
     start_sending_packets(state);
@@ -275,11 +275,19 @@ void Mimesis::onProcessUnload(S2EExecutionState *state, uint64_t page_dir, uint6
 void Mimesis::onEngineShutdown() {
     llvm::raw_ostream *os = &g_s2e->getInfoStream();
     *os << "Timestamp: (onEngineShutdown) " + timestamp() + "\n";
+    *os << "=======================================================\n";
     *os << ps::Manager::get().report_stats() << "\n";
-    *os << "=======================================================\n"
-        << "          Start serializing the model\n"
-        << "=======================================================\n\n";
-    // TODO
+    *os << "=======================================================\n";
+    *os << "==> Exporting the model\n";
+    for (const std::string &extension : {".mm", ".json"}) {
+        std::string fn = _program_name + extension;
+        *os << "  --> Timestamp: (startExport " + fn + ") " + timestamp() + "\n";
+        *os << "  --> " << fn << " ...";
+        ps::Manager::get().export_model(_model, fn);
+        *os << " Done\n";
+        *os << "  --> Timestamp: (finishExport " + fn + ") " + timestamp() + "\n";
+    }
+    *os << "=======================================================\n\n";
     ps::Manager::get().reset();
 }
 
