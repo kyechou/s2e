@@ -279,7 +279,7 @@ void Mimesis::onEngineShutdown() {
     *os << ps::Manager::get().report_stats() << "\n";
     *os << "=======================================================\n";
     *os << "==> Exporting the model\n";
-    for (const std::string &extension : {".mm", ".json"}) {
+    for (const std::string &extension : {".model", ".model.json"}) {
         std::string fn = _program_name + "-d" + std::to_string(_max_depth) + "-k" +
                          std::to_string(_allow_kernel_forking) + extension;
         *os << "  --> Timestamp: (startExport " + fn + ") " + timestamp() + "\n";
