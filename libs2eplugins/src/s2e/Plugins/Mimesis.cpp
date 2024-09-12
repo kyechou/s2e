@@ -420,7 +420,6 @@ void Mimesis::user_send(S2EExecutionState *state) {
     s2e_assert(state, intf, "Incorrect offset/width for user_send intf");
     s2e_assert(state, ok, "Symbolic egress buffer address or length in user_send");
     pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
-
     record_trace(state, intf, pkt);
 }
 
@@ -479,8 +478,8 @@ void Mimesis::kernel_send(S2EExecutionState *state) {
         return;
     }
 
-    // Get the egress ifindex and packet as symbolic expressions.
-    klee::ref<klee::Expr> ifindex, pkt;
+    // Get the egress intf and packet as symbolic expressions.
+    klee::ref<klee::Expr> ifindex, intf, pkt;
     target_ulong buffer, len, cb;
     bool ok = true;
     ifindex = state->regs()->read(CPU_OFFSET(regs[R_EAX]), klee::Expr::Int32);
@@ -489,14 +488,15 @@ void Mimesis::kernel_send(S2EExecutionState *state) {
     ok &= state->regs()->read(CPU_OFFSET(regs[R_EDX]), &cb, sizeof(cb), false);
     s2e_assert(state, ifindex, "Incorrect offset/width for kernel_send ifindex");
     s2e_assert(state, ok, "Symbolic arguments in kernel_send");
+    intf = klee::SubExpr::create(ifindex, klee::ConstantExpr::create(2ul, klee::Expr::Int32));
+    pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
+    record_trace(state, intf, pkt);
 
     // Set the control buffer to the special value to avoid sending out symbolic
     // frame to the driver code. See
     // <mimesis>/depends/patches/07-s2e-linux-kernel-netdev_start_xmit.patch.
     state->mem()->write(cb, (uint32_t) 0xdeadbeef);
 
-    pkt = state->mem()->read(buffer, /*width=(bits)*/ len * 8, VirtualAddress);
-    record_trace(state, ifindex, pkt);
     stop_sender_timer();
     start_sending_packets(state);
 }
