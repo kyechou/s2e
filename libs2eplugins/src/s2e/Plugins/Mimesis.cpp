@@ -280,7 +280,8 @@ void Mimesis::onEngineShutdown() {
     *os << "=======================================================\n";
     *os << "==> Exporting the model\n";
     for (const std::string &extension : {".mm", ".json"}) {
-        std::string fn = _program_name + extension;
+        std::string fn = _program_name + "-d" + std::to_string(_max_depth) + "-k" +
+                         std::to_string(_allow_kernel_forking) + extension;
         *os << "  --> Timestamp: (startExport " + fn + ") " + timestamp() + "\n";
         *os << "  --> " << fn << " ...";
         ps::Manager::get().export_model(_model, fn);
