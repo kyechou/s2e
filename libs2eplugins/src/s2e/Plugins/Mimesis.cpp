@@ -129,10 +129,7 @@ void Mimesis::initialize() {
     _proc_detector->onProcessUnload.connect(sigc::mem_fun(*this, &Mimesis::onProcessUnload));
 
     // Initialize the packet set library
-    ps::Manager::get().init(/*n_workers=*/1,
-                            /*memory_cap=*/1UL * 1024 * 1024 * 1024,
-                            /*table_ratio=*/1,
-                            /*initial_ratio=*/5);
+    ps::Manager::get().init();
 }
 
 Mimesis::~Mimesis() {
