@@ -45,6 +45,7 @@
 #include <unistd.h>
 
 #include "s2e/ConfigFile.h"
+#include "s2e/CorePlugin.h"
 #include "s2e/S2E.h"
 #include "s2e/S2EDeviceState.h"
 #include "s2e/S2EExecutionState.h"
@@ -88,6 +89,7 @@ void Mimesis::initialize() {
     _max_depth = s2e()->getConfig()->getInt(getConfigKey() + ".maxdepth", 1, &ok);
     _timeout = s2e()->getConfig()->getInt(getConfigKey() + ".timeout", 0, &ok);
     _allow_kernel_forking = s2e()->getConfig()->getBool(getConfigKey() + ".allowKernelForking", false, &ok);
+    _allow_kernel_symaddr = s2e()->getConfig()->getBool(getConfigKey() + ".allowKernelSymAddr", false, &ok);
     s2e_assert(nullptr, ok, "Failed to load config parameters");
 
     // Collect all interfaces. Here we see the QEMU host interfaces.
@@ -249,8 +251,13 @@ void Mimesis::onStateKill(S2EExecutionState *state) {
 
 void Mimesis::onSymbolicAddress(S2EExecutionState *state, klee::ref<klee::Expr> virtual_addr, uint64_t concrete_addr,
                                 bool &concretize, CorePlugin::symbolicAddressReason reason) {
-    // The message is disabled due to frequent invocation of the callback.
-    // getDebugStream(state) << "onSymbolicAddress" << '\n';
+    if (_monitor->isKernelAddress(get_pc(state))) {
+        concretize = !_allow_kernel_symaddr;
+    }
+
+    getDebugStream(state) << "onSymbolicAddress at " << hexval(state->regs()->getPc()) << " (reason " << ((int) reason)
+                          << ", concretize " + std::to_string(concretize) + "): " << hexval(concrete_addr) << "\n"
+                          << virtual_addr << "\n";
 }
 
 void Mimesis::onBeforeSymbolicDataMemoryAccess(S2EExecutionState *state, klee::ref<klee::Expr> virtual_addr,
@@ -288,13 +295,17 @@ void Mimesis::onProcessUnload(S2EExecutionState *state, uint64_t page_dir, uint6
 void Mimesis::onEngineShutdown() {
     llvm::raw_ostream *os = &g_s2e->getInfoStream();
     *os << "Timestamp: (onEngineShutdown) " + timestamp() + "\n";
+
+    // TODO: Simplify the model here.
+
     *os << "=======================================================\n";
     *os << ps::Manager::get().report_stats() << "\n";
     *os << "=======================================================\n";
     *os << "==> Exporting the model\n";
     for (const std::string &extension : {".model", ".model.json"}) {
-        std::string fn = _program_name + "-d" + std::to_string(_max_depth) + "-k" +
-                         std::to_string(_allow_kernel_forking) + extension;
+        std::string fn = _program_name + "-depth-" + std::to_string(_max_depth) +
+                         (_allow_kernel_forking ? "-kfork" : "") + (_allow_kernel_symaddr ? "-ksymaddr" : "") +
+                         extension;
         *os << "  --> Timestamp: (startExport " + fn + ") " + timestamp() + "\n";
         *os << "  --> " << fn << " ...";
         ps::Manager::get().export_model(_model, fn);

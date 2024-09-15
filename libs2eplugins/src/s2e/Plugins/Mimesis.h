@@ -60,6 +60,7 @@ private:
     int _max_depth = 0;
     uint64_t _timeout = 0; // Timeout in seconds. 0: no timeout.
     bool _allow_kernel_forking = false;
+    bool _allow_kernel_symaddr = false;
     std::vector<std::string> _interfaces;
     std::string _program_name;
     ps::Model _model;
