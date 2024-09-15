@@ -182,6 +182,7 @@ private:
     void onEngineShutdown();
 
     static void timer_cb(void *opaque);
+    void start_sender_timer();
     void stop_sender_timer();
 
     std::string timestamp() const;

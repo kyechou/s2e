@@ -323,7 +323,7 @@ void Mimesis::timer_cb(void *opaque) {
     Mimesis *mimesis = (Mimesis *) opaque;
 
     if (!g_s2e_state->isRunningConcrete() || mimesis->is_sending_packets(g_s2e_state)) {
-        mimesis->_consecutive_concretes = 0;
+        mimesis->start_sender_timer();
         return;
     }
 
@@ -336,6 +336,11 @@ void Mimesis::timer_cb(void *opaque) {
     } else {
         libcpu_mod_timer(mimesis->_sender_timer, libcpu_get_clock_ms(host_clock) + _timer_period);
     }
+}
+
+void Mimesis::start_sender_timer() {
+    _consecutive_concretes = 0;
+    libcpu_mod_timer(_sender_timer, libcpu_get_clock_ms(host_clock) + _timer_period);
 }
 
 void Mimesis::stop_sender_timer() {
@@ -458,7 +463,7 @@ void Mimesis::kernel_recv(S2EExecutionState *state) {
 
     DECLARE_PLUGINSTATE(MimesisState, state);
     stop_sending_packets(state);
-    stop_sender_timer();
+    start_sender_timer();
 
     // Consecutive reception, mark the previous ingress packet as "dropped" (i.e., empty output packet set).
     if (plgState->ingress_intf && plgState->ingress_pkt) {
