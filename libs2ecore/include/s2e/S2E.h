@@ -268,6 +268,11 @@ public:
     inline uint64_t getStartTime() const {
         return m_startTime.count();
     }
+
+    inline uint64_t getElapsedSeconds() const {
+        auto elapsed = std::chrono::steady_clock::now() - m_startTime;
+        return std::chrono::duration_cast<std::chrono::seconds>(elapsed.time_since_epoch()).count();
+    }
 };
 
 template <class PluginClass> PluginClass *S2E::getPlugin() const {

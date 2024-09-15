@@ -86,6 +86,7 @@ void Mimesis::initialize() {
     // Get the config parameters from `s2e-config.lua`.
     bool ok = true;
     _max_depth = s2e()->getConfig()->getInt(getConfigKey() + ".maxdepth", 1, &ok);
+    _timeout = s2e()->getConfig()->getInt(getConfigKey() + ".timeout", 0, &ok);
     _allow_kernel_forking = s2e()->getConfig()->getBool(getConfigKey() + ".allowKernelForking", false, &ok);
     s2e_assert(nullptr, ok, "Failed to load config parameters");
 
@@ -220,6 +221,14 @@ void Mimesis::afterStateSwitch(S2EExecutionState *new_state) {
         return;
     }
 
+    // Check the elapsed time and kill the current execution path if the timeout is exceeded.
+    if (_timeout > 0 && s2e()->getElapsedSeconds() > _timeout) {
+        try {
+            s2e()->getExecutor()->terminateState(*new_state, "Execution timed out");
+        } catch (CpuExitException &) {
+        }
+    }
+
     // Use a timer to check if we need to start sending subsequent input
     // packets. If there's a long period of concrete execution, it's possible
     // that the program is waiting for the next input packet. This can happen if
@@ -228,6 +237,10 @@ void Mimesis::afterStateSwitch(S2EExecutionState *new_state) {
 }
 
 void Mimesis::onStateKill(S2EExecutionState *state) {
+    if (_timeout > 0 && s2e()->getElapsedSeconds() > _timeout) {
+        return; // Execution timed out. Do not record traces.
+    }
+
     DECLARE_PLUGINSTATE(MimesisState, state);
     if (plgState->ingress_intf && plgState->ingress_pkt) {
         record_trace(state, nullptr, nullptr);

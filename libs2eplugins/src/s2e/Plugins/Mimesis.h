@@ -58,6 +58,7 @@ private:
     BaseInstructions *_base_inst = nullptr;
     ProcessExecutionDetector *_proc_detector = nullptr;
     int _max_depth = 0;
+    uint64_t _timeout = 0; // Timeout in seconds. 0: no timeout.
     bool _allow_kernel_forking = false;
     std::vector<std::string> _interfaces;
     std::string _program_name;
