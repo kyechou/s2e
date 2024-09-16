@@ -62,6 +62,7 @@
 #include "cpu/types.h"
 #include "fsigc++/fsigc++.h"
 #include "libps/manager.hpp"
+#include "libps/packetset.hpp"
 #include "timer.h"
 
 namespace s2e {
@@ -176,11 +177,11 @@ void Mimesis::onStateFork(S2EExecutionState *original_state, const std::vector<S
                           const std::vector<klee::ref<klee::Expr>> &conditions) {
     for (S2EExecutionState *state : new_states) {
         state->setStateSwitchForbidden(true); // disable state switching
-        // auto constraints = state->constraints().getConstraintSet();
-        // ps::PacketSet ps(constraints);
-        // if (ps.empty()) {
-        //     s2e()->getExecutor()->terminateState(*state, "Kill unsat state");
-        // }
+        auto constraints = state->constraints().getConstraintSet();
+        ps::PacketSet ps(constraints);
+        if (ps.empty()) {
+            s2e()->getExecutor()->terminateState(*state, "Kill unsat state");
+        }
     }
 }
 
@@ -575,123 +576,3 @@ void Mimesis::record_trace(S2EExecutionState *state, const klee::ref<klee::Expr>
 
 } // namespace plugins
 } // namespace s2e
-
-// namespace {
-//
-// void print_query_result(llvm::raw_ostream &os, const std::set<std::shared_ptr<ps::TableEntry>> &result) {
-//     std::function<void(llvm::raw_ostream &, const std::shared_ptr<ps::TableEntry> &)> print_single_entry_rec;
-//     print_single_entry_rec = [&print_single_entry_rec](llvm::raw_ostream &os,
-//                                                        const std::shared_ptr<ps::TableEntry> &entry) -> void {
-//         os << entry->to_string();
-//         for (const auto &next : entry->next_entries()) {
-//             print_single_entry_rec(os, next);
-//         }
-//     };
-//
-//     os << "---------  Query Result  ---------------------------\n";
-//     for (const auto &entry : result) {
-//         print_single_entry_rec(os, entry);
-//     }
-//     os << "----------------------------------------------------\n";
-// }
-//
-// } // namespace
-
-// void Mimesis::user_demo_stateful_queries(llvm::raw_ostream &os) const {
-//     // user-demo-stateful: depth 1, drop, single-value
-//     {
-//         klee::ArrayPtr array = klee::Array::create("in_intf_d1", 1);
-//         klee::UpdateListPtr ul = klee::UpdateList::create(array, 0);
-//         klee::ref<klee::Expr> expr;
-//         // (Eq 0x3 (Read w8 0x0 in_intf_d1))
-//         expr = klee::ReadExpr::create(ul, klee::ConstantExpr::create(0, klee::Expr::Int32));
-//         expr = klee::EqExpr::create(klee::ConstantExpr::create(0x3, klee::Expr::Int8), expr);
-//         os << "Query constraint:\n" << expr << "\n";
-//         os << "Timestamp: (queryStart) " + timestamp() + "\n";
-//         auto res = _model.query(1, expr);
-//         os << "Timestamp: (queryEnd) " + timestamp() + "\n";
-//         print_query_result(os, res);
-//         os << "=======================================================\n";
-//     }
-//
-//     // user-demo-stateful: depth 2, pass -> pass, single-value
-//     {
-//         klee::ArrayPtr d1_array = klee::Array::create("in_intf_d1", 1);
-//         klee::ArrayPtr d2_array = klee::Array::create("in_intf_d2", 1);
-//         klee::UpdateListPtr d1_ul = klee::UpdateList::create(d1_array, 0);
-//         klee::UpdateListPtr d2_ul = klee::UpdateList::create(d2_array, 0);
-//         klee::ref<klee::Expr> expr, d1_expr, d2_expr;
-//         // (And (Eq 0x0 (Read w8 0x0 in_intf_d1))
-//         //      (Eq 0x5 (Read w8 0x0 in_intf_d2)))
-//         d1_expr = klee::ReadExpr::create(d1_ul, klee::ConstantExpr::create(0, klee::Expr::Int32));
-//         d1_expr = klee::EqExpr::create(klee::ConstantExpr::create(0, klee::Expr::Int8), d1_expr);
-//         d2_expr = klee::ReadExpr::create(d2_ul, klee::ConstantExpr::create(0, klee::Expr::Int32));
-//         d2_expr = klee::EqExpr::create(klee::ConstantExpr::create(5, klee::Expr::Int8), d2_expr);
-//         expr = klee::AndExpr::create(d1_expr, d2_expr);
-//         os << "Query constraint:\n" << expr << "\n";
-//         os << "Timestamp: (queryStart) " + timestamp() + "\n";
-//         auto res = _model.query(2, expr);
-//         os << "Timestamp: (queryEnd) " + timestamp() + "\n";
-//         print_query_result(os, res);
-//         os << "=======================================================\n";
-//     }
-// }
-//
-// void Mimesis::user_demo_stateless_queries(llvm::raw_ostream &os) const {
-//     // user-demo-stateless: depth 1, pass, single-value
-//     {
-//         klee::ArrayPtr array = klee::Array::create("in_pkt_d1", 1);
-//         klee::UpdateListPtr ul = klee::UpdateList::create(array, 0);
-//         klee::ref<klee::Expr> expr;
-//         // (Eq 0x3
-//         //     (ZExt w64 (Read w8 0x0 in_pkt_d1)))
-//         expr = klee::ReadExpr::create(ul, klee::ConstantExpr::create(0, klee::Expr::Int32));
-//         expr = klee::ZExtExpr::create(expr, klee::Expr::Int64);
-//         expr = klee::EqExpr::create(klee::ConstantExpr::create(3, klee::Expr::Int64), expr);
-//         os << "Query constraint:\n" << expr << "\n";
-//         os << "Timestamp: (queryStart) " + timestamp() + "\n";
-//         auto res = _model.query(1, expr);
-//         os << "Timestamp: (queryEnd) " + timestamp() + "\n";
-//         print_query_result(os, res);
-//         os << "=======================================================\n";
-//     }
-//
-//     // user-demo-stateless: depth 1, drop, single-value
-//     {
-//         klee::ArrayPtr array = klee::Array::create("in_pkt_d1", 1);
-//         klee::UpdateListPtr ul = klee::UpdateList::create(array, 0);
-//         klee::ref<klee::Expr> expr;
-//         // (Eq 0xff
-//         //     (ZExt w64 (Read w8 0x0 in_pkt_d1)))
-//         expr = klee::ReadExpr::create(ul, klee::ConstantExpr::create(0, klee::Expr::Int32));
-//         expr = klee::ZExtExpr::create(expr, klee::Expr::Int64);
-//         expr = klee::EqExpr::create(klee::ConstantExpr::create(0xff, klee::Expr::Int64), expr);
-//         os << "Query constraint:\n" << expr << "\n";
-//         os << "Timestamp: (queryStart) " + timestamp() + "\n";
-//         auto res = _model.query(1, expr);
-//         os << "Timestamp: (queryEnd) " + timestamp() + "\n";
-//         print_query_result(os, res);
-//         os << "=======================================================\n";
-//     }
-//
-//     // user-demo-stateless: depth 1, pass & drop, symbolic multi-value
-//     {
-//         klee::ArrayPtr array = klee::Array::create("in_pkt_d1", 1);
-//         klee::UpdateListPtr ul = klee::UpdateList::create(array, 0);
-//         klee::ref<klee::Expr> expr, n0;
-//         // (And (Ule 0x3
-//         //           N0: (ZExt w64 (Read w8 0x0 in_pkt_d1)))
-//         //      (Uge 0xf
-//         //           N0: (ZExt w64 (Read w8 0x0 in_pkt_d1))))
-//         expr = klee::ReadExpr::create(ul, klee::ConstantExpr::create(0, klee::Expr::Int32));
-//         n0 = klee::ZExtExpr::create(expr, klee::Expr::Int64);
-//         expr = klee::AndExpr::create(klee::UleExpr::create(klee::ConstantExpr::create(0x3, klee::Expr::Int64), n0),
-//                                      klee::UgeExpr::create(klee::ConstantExpr::create(0xf, klee::Expr::Int64), n0));
-//         os << "Query constraint:\n" << expr << "\n";
-//         os << "Timestamp: (queryStart) " + timestamp() + "\n";
-//         auto res = _model.query(1, expr);
-//         os << "Timestamp: (queryEnd) " + timestamp() + "\n";
-//         print_query_result(os, res);
-//         os << "=======================================================\n";
-//     }
-// }
