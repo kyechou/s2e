@@ -180,7 +180,11 @@ void Mimesis::onStateFork(S2EExecutionState *original_state, const std::vector<S
         auto constraints = state->constraints().getConstraintSet();
         ps::PacketSet ps(constraints);
         if (ps.empty()) {
-            s2e()->getExecutor()->terminateState(*state, "Kill unsat state");
+            // Clear the plugin state so that the trace will not be recorded.
+            DECLARE_PLUGINSTATE(MimesisState, state);
+            plgState->ingress_intf = nullptr;
+            plgState->ingress_pkt = nullptr;
+            s2e()->getExecutor()->terminateState(*state, "Kill unsat forked state");
         }
     }
 }
@@ -564,14 +568,18 @@ void Mimesis::record_trace(S2EExecutionState *state, const klee::ref<klee::Expr>
     *os << path_constraint << "\n";
     *os << "--------------------------------\n";
 
-    s2e_assert(state,
-               _model.insert(plgState->depth, plgState->ingress_intf, plgState->ingress_pkt, egress_intf, egress_pkt,
-                             path_constraint),
-               "Failed to insert trace to model");
+    int res = _model.insert(plgState->depth, plgState->ingress_intf, plgState->ingress_pkt, egress_intf, egress_pkt,
+                            path_constraint);
+    s2e_assert(state, res >= 0, "Failed to insert trace to model");
 
     // Clear the plugin state for the current execution path.
     plgState->ingress_intf = nullptr;
     plgState->ingress_pkt = nullptr;
+
+    // Kill the current execution path if the constraint is unsat.
+    if (res == 0) {
+        s2e()->getExecutor()->terminateState(*state, "Unsat path constraint");
+    }
 }
 
 } // namespace plugins
