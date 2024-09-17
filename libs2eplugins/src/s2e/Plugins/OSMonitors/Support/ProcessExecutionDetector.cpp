@@ -166,6 +166,10 @@ bool ProcessExecutionDetector::isTrackedPc(S2EExecutionState *state, uint64_t pc
 
     uint64_t pid = m_monitor->getPid(state);
 
+    if (pid == 0 && m_monitor->isKernelAddress(pc)) {
+        return true; // Allow kernel code tracking for eBPF apps.
+    }
+
     return plgState->m_trackedPids.count(pid) > 0;
 }
 
