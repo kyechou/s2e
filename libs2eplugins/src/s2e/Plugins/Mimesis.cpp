@@ -164,7 +164,7 @@ void Mimesis::onStateForkDecide(S2EExecutionState *state, const klee::ref<klee::
         return;
     }
 
-    if (!_proc_detector->isTrackedPc(state, pc)) {
+    if (!_monitor->isKernelAddress(pc) && !_proc_detector->isTrackedPc(state, pc)) {
         getWarningsStream(state) << "State forking in untracked region.\n";
         DECLARE_PLUGINSTATE(MimesisState, state);
         s2e()->getExecutor()->terminateState(*state, ("Kill state at untracked PC " + hexval(pc).str() +
