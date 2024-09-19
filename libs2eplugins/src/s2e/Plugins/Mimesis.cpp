@@ -260,6 +260,11 @@ void Mimesis::onSymbolicAddress(S2EExecutionState *state, klee::ref<klee::Expr> 
         concretize = !_allow_kernel_symaddr;
     }
 
+    auto pid = _monitor->getPid(state);
+    if (_program_name.substr(0, 4) == "ebpf" && pid != 0) {
+        concretize = true;
+    }
+
     getDebugStream(state) << "onSymbolicAddress at " << hexval(state->regs()->getPc()) << " (reason " << ((int) reason)
                           << ", concretize " + std::to_string(concretize) + "): " << hexval(concrete_addr) << "\n"
                           << virtual_addr << "\n";
@@ -530,6 +535,10 @@ void Mimesis::kernel_send(S2EExecutionState *state) {
     // frame to the driver code. See
     // <mimesis>/depends/patches/07-s2e-linux-kernel-netdev_start_xmit.patch.
     state->mem()->write(cb, (uint32_t) 0xdeadbeef);
+    // Concretize the egress symbolic packet for good measure.
+    char *concrete_buffer = new char[len];
+    state->mem()->read(buffer, concrete_buffer, /*size=(bytes)*/ len, VirtualAddress);
+    delete[] concrete_buffer;
 
     stop_sender_timer();
     start_sending_packets(state);
@@ -568,9 +577,11 @@ void Mimesis::record_trace(S2EExecutionState *state, const klee::ref<klee::Expr>
     *os << path_constraint << "\n";
     *os << "--------------------------------\n";
 
+    getInfoStream(state) << "Timestamp: (startInsertTrace) " + timestamp() + "\n";
     int res = _model.insert(plgState->depth, plgState->ingress_intf, plgState->ingress_pkt, egress_intf, egress_pkt,
                             path_constraint);
     s2e_assert(state, res >= 0, "Failed to insert trace to model");
+    getInfoStream(state) << "Timestamp: (finishInsertTrace) " + timestamp() + "\n";
 
     // Clear the plugin state for the current execution path.
     plgState->ingress_intf = nullptr;
